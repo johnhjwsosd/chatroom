@@ -5,6 +5,7 @@ import (
 	"net"
 	"sync/atomic"
 	"io"
+	"bytes"
 )
 
 type server struct{
@@ -39,7 +40,7 @@ func (s *server) Run(){
 		fmt.Printf("Listen Error: %s\n", err)
 		return
 	}
-	fmt.Println("server listening at  ",ListenPort,"  .... ")
+	fmt.Println("socket server listening at  ",ListenPort,"  .... ")
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -72,9 +73,12 @@ func (c *clientInfo) sendMessage (){
 }
 
 func (c *clientInfo) readMessage(){
-	databuf := make([]byte, 200)
+	dataPool := bytes.NewBuffer(make([]byte,0,65536))
+	dataBuf := make([]byte,0,10240)
+	isReadHead := 0
+	msgLen :=0
 	for {
-		n, err := c.conn.Read(databuf)
+		n, err := c.conn.Read(dataBuf)
 		if err == io.EOF{
 			c.clientLeft()
 			fmt.Printf("client %d has left,server has client %d now \n",c.connID,len(serverObj.clientList))
@@ -85,7 +89,29 @@ func (c *clientInfo) readMessage(){
 			fmt.Println("conn occur falal: ", err, "       closeing connection : ", c.conn)
 			return
 		}
-		msg :=  string(databuf[:n])
+		n, err = dataPool.Write(dataBuf[:n])
+		if err != nil {
+			fmt.Printf("Buffer write error: %s\n", err)
+			return
+		}
+
+		for{
+			if isReadHead==0 && dataPool.Len()>4{
+				msgLen = 1
+				isReadHead = 1
+			}else {
+				break
+			}
+			if isReadHead ==1 && dataPool.Len()> msgLen{
+				msg := dataPool.Next(msgLen)
+				fmt.Println(msg)
+			}else {
+				break
+			}
+		}
+
+		return
+		msg :=  string(dataBuf[:n])
 		if msg == "1"{
 			c.broadcast()
 			continue

@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"io"
 	"bytes"
+	"encoding/binary"
 )
 
 type server struct{
@@ -17,6 +18,12 @@ type clientInfo struct{
 	writer chan string
 	conn net.Conn
 	connID uint32
+}
+
+type head struct{
+	CmdType uint8
+	PacketLen uint32
+	Version uint8
 }
 
 var FLAGCLIENT uint32 = 1
@@ -74,9 +81,14 @@ func (c *clientInfo) sendMessage (){
 
 func (c *clientInfo) readMessage(){
 	dataPool := bytes.NewBuffer(make([]byte,0,65536))
-	dataBuf := make([]byte,0,10240)
+	dataBuf := make([]byte,1024)
+
 	isReadHead := 0
-	msgLen :=0
+	msgLen := 0
+	cmdType := 0
+	var msg []byte
+
+	var headInfo *head
 	for {
 		n, err := c.conn.Read(dataBuf)
 		if err == io.EOF{
@@ -94,29 +106,52 @@ func (c *clientInfo) readMessage(){
 			fmt.Printf("Buffer write error: %s\n", err)
 			return
 		}
-
+		//处理分包，粘包
 		for{
-			if isReadHead==0 && dataPool.Len()>4{
-				msgLen = 1
-				isReadHead = 1
-			}else {
+			//读头
+			if isReadHead==0 && dataPool.Len()>=6{
+				headInfo = &head{}
+				err = binary.Read(dataPool,binary.BigEndian,headInfo)
+				if err !=nil{
+					fmt.Printf("read buffer occur fatal,%s  %d closed conn  \n",err,c.connID)
+					c.clientLeft()
+					return
+				}
+				if headInfo.Version == 101{
+					isReadHead = 1
+					msgLen = int(headInfo.PacketLen)
+					cmdType = int(headInfo.CmdType)
+					if msgLen >65535{
+						fmt.Printf("illegal data,  %d cloesd conn \n",c.connID)
+						c.clientLeft()
+						return
+					}
+				}else {
+					fmt.Printf("illegal client")
+					c.clientLeft()
+					return
+				}
+			}else {   //若头不完整，缓冲区没有更多数据。等待conn.read()
 				break
 			}
-			if isReadHead ==1 && dataPool.Len()> msgLen{
-				msg := dataPool.Next(msgLen)
-				fmt.Println(msg)
-			}else {
+			if isReadHead ==1 && dataPool.Len() >=msgLen {
+				isReadHead = 0
+				switch cmdType {
+				case 0:
+					msg = dataPool.Next(msgLen)
+					fmt.Println("个人消息：",string(msg))
+					//todo:个人间文本消息转发
+				case 1:
+					msg = dataPool.Next(msgLen)
+					fmt.Println("广播消息：",string(msg))
+					c.broadcast(string(msg))
+				case 2:
+					//todo:其他类型
+				}
+			}else {  //包不完整，缓冲区数据不够。
 				break
 			}
 		}
-
-		return
-		msg :=  string(dataBuf[:n])
-		if msg == "1"{
-			c.broadcast()
-			continue
-		}
-		fmt.Println(msg)
 	}
 }
 
@@ -128,12 +163,16 @@ func (c *clientInfo) clientLeft(){
 			serverObj.clientList = append(serverObj.clientList[0:k],serverObj.clientList[k+1:]...)
 		}
 	}
+	c.conn.Close()
 }
 
-func (c *clientInfo) broadcast(){
-	for _,v :=range serverObj.clientList{
-		v.writer <- "123"
+func (c *clientInfo) broadcast(content interface{}){
+	if msg,ok :=content.(string);ok{
+		for _,v :=range serverObj.clientList{
+			v.writer <- msg
+		}
 	}
+	//todo:广播其他类型
 }
 
 

@@ -71,10 +71,11 @@ func (s *server) handlerClient(conn net.Conn){
 
 
 func (c *clientInfo) sendMessage (){
+	var msg string
 	for{
 		select{
-		case <-c.writer:
-			c.conn.Write([]byte("test"))
+		case msg =<-c.writer:
+			c.conn.Write([]byte(msg))
 		}
 	}
 }
@@ -106,7 +107,7 @@ func (c *clientInfo) readMessage(){
 			fmt.Printf("Buffer write error: %s\n", err)
 			return
 		}
-		//处理分包，粘包
+		//处理缓存池内的数据
 		for{
 			//读头
 			if isReadHead==0 && dataPool.Len()>=6{
@@ -117,6 +118,7 @@ func (c *clientInfo) readMessage(){
 					c.clientLeft()
 					return
 				}
+				fmt.Println("head ：",headInfo)
 				if headInfo.Version == 101{
 					isReadHead = 1
 					msgLen = int(headInfo.PacketLen)
@@ -131,9 +133,8 @@ func (c *clientInfo) readMessage(){
 					c.clientLeft()
 					return
 				}
-			}else {   //若头不完整，缓冲区没有更多数据。等待conn.read()
-				break
 			}
+			//读包
 			if isReadHead ==1 && dataPool.Len() >=msgLen {
 				isReadHead = 0
 				switch cmdType {
@@ -148,7 +149,7 @@ func (c *clientInfo) readMessage(){
 				case 2:
 					//todo:其他类型
 				}
-			}else {  //包不完整，缓冲区数据不够。
+			}else {  //判断既不读头，又不读报文的时候继续读取连接中内容存入缓存池。
 				break
 			}
 		}
@@ -173,6 +174,10 @@ func (c *clientInfo) broadcast(content interface{}){
 		}
 	}
 	//todo:广播其他类型
+}
+
+func(c *clientInfo) makePacket() []byte{
+	return  nil
 }
 
 

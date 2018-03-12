@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"bytes"
 	"encoding/binary"
+	"time"
 )
 
 type head struct{
@@ -64,24 +65,50 @@ func Test_stickPacketSend(){
 
 
 	message = []byte("hiworld")
-	msglen = len(message)
-	headInfo = &head{1,uint32(msglen),101}
+	secondLen:= len(message)
+	allLen := secondLen + msglen
+
+	headInfo = &head{1,uint32(secondLen),101}
 	err = binary.Write(msgbuf,binary.BigEndian,headInfo)
 	if err !=nil{
 		fmt.Printf("write buffer occur fatal %s ",err)
 		return
 	}
 
+	_,err= msgbuf.Write(message)
+	if err!=nil{
+		fmt.Printf("write byte occur fatal %s ",err)
+		return
+	}
+	clientConn.Write(msgbuf.Next(allLen+3))
 
-	clientConn.Write(msgbuf.Next(6+msglen))
+
+	time.Sleep(time.Second*3)
+	clientConn.Write(msgbuf.Next(6))
+
+	clientConn.Write(msgbuf.Next(3))
 }
 
-func Test_subPacketSend(){
-
-}
 
 func Test_errorHeadSend(){
+	msgbuf := bytes.NewBuffer(make([]byte, 0, 1024))
+	message := []byte("thisisatest")
+	msglen := len(message)
+	headInfo := &head{1,uint32(msglen),101}
 
+	err := binary.Write(msgbuf,binary.BigEndian,headInfo)
+	if err !=nil{
+		fmt.Printf("write buffer occur fatal %s ",err)
+		return
+	}
+	_,err= msgbuf.Write(message)
+	if err!=nil{
+		fmt.Printf("write byte occur fatal %s ",err)
+		return
+	}
+	fmt.Println(msglen)
+	clientConn.Write(msgbuf.Next(msglen-10))
+	clientConn.Write(msgbuf.Next(10))
 }
 
 
